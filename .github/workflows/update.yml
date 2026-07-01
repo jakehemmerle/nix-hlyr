@@ -4,7 +4,7 @@ name: update
 # the new version builds under Nix, then commit the bump straight to main.
 on:
   schedule:
-    - cron: "17 */6 * * *" # every 6 hours
+    - cron: "*/15 * * * *" # every 15 minutes
   workflow_dispatch: {}
 
 concurrency:
