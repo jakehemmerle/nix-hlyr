@@ -20,7 +20,7 @@ jobs:
     # so the build check below runs on the real platform.
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: DeterminateSystems/nix-installer-action@v22
 
