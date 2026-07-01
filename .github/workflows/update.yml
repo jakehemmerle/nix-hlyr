@@ -1,0 +1,61 @@
+name: update
+
+# Poll the upstream Homebrew cask for a new HumanLayer/Riptide release, verify
+# the new version builds under Nix, then commit the bump straight to main.
+on:
+  schedule:
+    - cron: "17 */6 * * *" # every 6 hours
+  workflow_dispatch: {}
+
+concurrency:
+  group: update
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    # macos-14 is an Apple Silicon runner — the only arch this package targets,
+    # so the build check below runs on the real platform.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@v22
+
+      - name: Sync source.json with upstream cask
+        id: sync
+        run: |
+          ./scripts/update.sh | tee /tmp/update.log
+          if tail -1 /tmp/update.log | grep -qx changed; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and verify authenticity of the new version
+        if: steps.sync.outputs.changed == 'true'
+        run: |
+          nix build --print-build-logs .#humanlayer
+          # Fail the bump if the artifact is not notarized + signed by
+          # HumanLayer's Developer ID (Team ID 89C6S2SYU3).
+          ./scripts/verify-signature.sh result
+
+      - name: Commit bump to main
+        if: steps.sync.outputs.changed == 'true'
+        run: |
+          version="$(jq -r .version pkgs/humanlayer/source.json)"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pkgs/humanlayer/source.json
+          git commit -m "chore: bump humanlayer to ${version}"
+          # Push resiliently: if main advanced since checkout, rebase and retry
+          # rather than dropping the bump (there is no PR gate on this repo).
+          for attempt in 1 2 3; do
+            if git push; then exit 0; fi
+            echo "push rejected (attempt ${attempt}); rebasing onto origin/main…"
+            git pull --rebase --autostash origin main
+          done
+          echo "ERROR: could not push bump after 3 attempts" >&2
+          exit 1
